@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 import android.content.Context;
+import android.util.Log;
 
 import com.trader.office.Clerk;
 
@@ -21,7 +22,6 @@ public class FileStore<T> extends Store<T> {
 	FileStore(int storeType, String uid, Context context, Clerk<T> clerk,
 			Class<T> clas) {
 		super(storeType, uid, clerk, clas);
-		// TODO Auto-generated constructor stub
 		File dir = null;
 		switch (storeType) {
 		case STORE_INTERNAL_CACHE:
@@ -41,7 +41,7 @@ public class FileStore<T> extends Store<T> {
 					"An invalid storeType was specified" + storeType);
 		}
 		if (dir == null) {
-			throw new NullPointerException("External storage is not mounted");
+			throw new NullPointerException("External storage is not available");
 		}
 		base = new File(dir, TRADER);
 		if (!base.exists()) {
@@ -50,12 +50,9 @@ public class FileStore<T> extends Store<T> {
 	}
 
 	@Override
-	byte[] get(long digest) throws IOException {
-		// TODO Auto-generated method stub
-		File file = new File(base, Long.toHexString(digest));
-		if (!file.exists()) {
-			return null;
-		}
+	protected
+	byte[] getData(String digest) throws IOException {
+		File file = new File(base, digest);
 		InputStream is = null;
 		try {
 			is = new FileInputStream(file);
@@ -67,8 +64,7 @@ public class FileStore<T> extends Store<T> {
 			}
 			return bs.toByteArray();
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			Log.e("FileStore GET", "file not found. the cache probably never existed");
 		} finally {
 			if (is != null) {
 				is.close();
@@ -78,19 +74,18 @@ public class FileStore<T> extends Store<T> {
 	}
 
 	@Override
-	void put(long digest, byte[] value) throws IOException {
-		// TODO Auto-generated method stub
+	protected
+	void putData(String digest, byte[] value) throws IOException {
 		if (!base.exists()) {
 			base.mkdirs();
 		}
-		File file = new File(base, Long.toHexString(digest));
+		File file = new File(base, digest);
 		OutputStream os = null;
 		try {
 			os = new FileOutputStream(file);
 			os.write(value);
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			Log.e("FileStore PUT", "unable to open file for writing");
 		} finally {
 			if (os != null) {
 				os.close();
@@ -104,16 +99,16 @@ public class FileStore<T> extends Store<T> {
 	 * before returning.
 	 */
 	@Override
-	byte[] remove(long digest) {
-		// TODO Auto-generated method stub
-		File file = new File(base, Long.toHexString(digest));
+	protected
+	byte[] removeData(String digest) {
+		File file = new File(base, digest);
 		file.delete();
 		return null;
 	}
 
 	@Override
-	void clearAll() {
-		// TODO Auto-generated method stub
+	protected
+	void clearData() {
 		File[] files = base.listFiles();
 		if (files == null)
 			return;
@@ -123,7 +118,6 @@ public class FileStore<T> extends Store<T> {
 	}
 
 	public boolean similarTo(FileStore<T> store) {
-		// TODO Auto-generated method stub
 		if (base != store.base) {
 			return false;
 		}
@@ -131,9 +125,9 @@ public class FileStore<T> extends Store<T> {
 	}
 
 	@Override
-	boolean containsKey(long digest) {
-		// TODO Auto-generated method stub
-		File file = new File(base, Long.toString(digest, 16));
+	protected
+	boolean contains(String digest) {
+		File file = new File(base, digest);
 		return file.exists();
 	}
 

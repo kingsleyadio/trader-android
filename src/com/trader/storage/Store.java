@@ -5,7 +5,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
-import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
@@ -34,15 +33,16 @@ public abstract class Store<T> {
 		this.storeType = storeType;
 	}
 
-	abstract byte[] get(long digest) throws IOException;
+	protected abstract byte[] getData(String digest) throws IOException;
 
-	abstract void put(long digest, byte[] value) throws IOException;
+	protected abstract void putData(String digest, byte[] value)
+			throws IOException;
 
-	abstract byte[] remove(long digest);
+	protected abstract byte[] removeData(String digest);
 
-	abstract boolean containsKey(long digest);
+	protected abstract boolean contains(String digest);
 
-	abstract void clearAll();
+	protected abstract void clearData();
 
 	/**
 	 * Checks the resemblance between 2 stores. The kinda class managed by the
@@ -74,20 +74,19 @@ public abstract class Store<T> {
 			throw new NullPointerException("Key cannot be null");
 		}
 		T object = null;
-		long digest = digest(key);
+		String digest = digest(key);
 		object = cache.get(digest);
 		if (object != null) {
-			Log.i("Store GET", "memory HIT, returning data. key = " + key);
-			return object;
+			Log.i("Store GET", "memory HIT, returning data. key=" + key);
 		} else {
 			Log.i("Store GET", "memory MISS, moving to internal store");
 			try {
-				byte[] bytes = get(digest);
+				byte[] bytes = getData(digest);
 				if (bytes != null) {
 					InputStream stream = new ByteArrayInputStream(bytes);
 					object = clerk.inflateFromStream(stream);
 					Log.i("Store GET",
-							"internal store HIT, updating cache with key");
+							"internal store HIT, updating memory. key=" + key);
 					cache.put(digest, object);
 				} else {
 					Log.i("Store GET", "internal store MISS, returning null");
@@ -95,53 +94,66 @@ public abstract class Store<T> {
 			} catch (IOException e) {
 				Log.i("Store GET", "IOException encountered, returning null");
 			}
-			return object;
 		}
+		return object;
 	}
 
 	public void put(String key, T value) {
 		if (key == null || value == null) {
 			throw new NullPointerException("Neither key nor value can be null");
 		}
-		long digest = digest(key);
+		String digest = digest(key);
 		try {
 			ByteArrayOutputStream stream = new ByteArrayOutputStream();
 			clerk.deflateToStream(value, stream);
 			byte[] bytes = stream.toByteArray();
-			put(digest, bytes);
+			putData(digest, bytes);
+			Log.i("Store PUT", "new data put to store");
 		} catch (IOException e) {
 			Log.i("Store PUT",
 					"encountered an IOException. skipping over to memory put");
 		}
 		cache.put(digest, value);
-		Log.i("Store PUT", "new data put to store. key = " + key);
+		Log.i("Store PUT", "memory updated. key=" + key);
 	}
 
 	public T remove(String key) {
 		if (key == null) {
 			throw new NullPointerException("Key cannot be null");
 		}
-		long digest = digest(key);
+		String digest = digest(key);
 		T value = cache.remove(digest);
-		remove(digest);
+		removeData(digest);
+		Log.i("Store REMOVE", "data removed from store. key=" + key);
 		return value;
 	}
 
+	/**
+	 * Checks if this key is already contained in the store.
+	 * It first checks the memory which works as expected, but the 
+	 * internal store check is not guaranteed to return the correct value
+	 * depending on which store is actually been used.
+	 * You should make the call to {@link Store#get(String)} to be sure!
+	 * 
+	 * @param key the key to check for
+	 * @return true if found else false
+	 */
+	@Deprecated
 	public boolean containsKey(String key) {
 		if (key == null) {
 			throw new NullPointerException("Key cannot be null");
 		}
-		long digest = digest(key);
-		return (cache.containsKey(digest) || containsKey(digest));
+		String digest = digest(key);
+		return (cache.containsKey(digest) || contains(digest));
 	}
 
 	public void clear() {
-		clearAll();
+		clearData();
 		cache.clear();
 		Log.i("Store CLEAR", "all data in this store has been cleared");
 	}
 
-	protected long digest(String string) {
+	protected String digest(String string) {
 		StringBuffer sb = new StringBuffer();
 		MessageDigest digest;
 		try {
@@ -158,31 +170,26 @@ public abstract class Store<T> {
 				}
 			}
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			Log.e("Hash Digest", "hash algorithm not available", e);
 		}
-		return new BigInteger(sb.toString(), 16).longValue();
-		// return Long.parseLong(sb.toString(), 16);
+		return sb.toString();
 	}
 
 	static class MemoryCache<T> {
 
-		private final Map<Long, WeakReference<T>> cache = new HashMap<Long, WeakReference<T>>();
+		private final Map<String, WeakReference<T>> cache = new HashMap<String, WeakReference<T>>();
 
-		T get(long digest) {
-			// TODO Auto-generated method stub
+		T get(String digest) {
 			WeakReference<T> ref = cache.get(digest);
 			return ref != null ? ref.get() : null;
 		}
 
-		void put(long digest, T value) {
-			// TODO Auto-generated method stub
+		void put(String digest, T value) {
 			WeakReference<T> ref = new WeakReference<T>(value);
 			cache.put(digest, ref);
 		}
 
-		T remove(long digest) {
-			// TODO Auto-generated method stub
+		T remove(String digest) {
 			WeakReference<T> ref = cache.remove(digest);
 			T bytes = null;
 			if (ref != null) {
@@ -192,11 +199,10 @@ public abstract class Store<T> {
 		}
 
 		public void clear() {
-			// TODO Auto-generated method stub
 			cache.clear();
 		}
 
-		public boolean containsKey(long digest) {
+		public boolean containsKey(String digest) {
 			return cache.containsKey(digest);
 		}
 
@@ -204,7 +210,7 @@ public abstract class Store<T> {
 			return cache.size();
 		}
 
-		public Set<Long> keySet() {
+		public Set<String> keySet() {
 			return cache.keySet();
 		}
 
@@ -232,12 +238,14 @@ public abstract class Store<T> {
 		if (store != null) {
 			if (!store.clas.equals(clas)) {
 				throw new IllegalArgumentException(
-						"A store  with the same uid already exists with a different clerk");
+						"A store  with the same uid already exists with a different clerk. class="
+								+ clas.getName());
 			}
-			Log.i("GET Store",
-					"A store with similar signature was found. A reference to it will be returned");
+			Log.i("New Store",
+					"A store with similar signature was found. A reference to it will be returned. storeType="
+							+ storeType);
 		} else {
-			Log.i("GET Store",
+			Log.i("New Store",
 					"No existing store with similar signature was found, attempting to create a new store");
 			if (storeType == STORE_DB) {
 				store = new DbStore<E>(uid, context, clerk, clas);
@@ -245,6 +253,8 @@ public abstract class Store<T> {
 				store = new FileStore<E>(storeType, uid, context, clerk, clas);
 			}
 			stores.add((Store<Object>) store);
+			Log.i("New Store", "new store instantiated. uid=" + uid
+					+ "; storeType=" + storeType + "; class=" + clas.getName());
 		}
 		return store;
 	}
